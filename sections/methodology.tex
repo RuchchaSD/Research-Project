@@ -25,7 +25,7 @@ multiplication. Together, these optimizations eliminate pointer chasing and enab
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.85\linewidth]{figs/placeholder}
+  \includegraphics[width=0.75\linewidth]{figs/placeholder}
   \caption{Edge bucketing layout showing landmark-first organization of edges with sequential 
   pose/landmark IDs for contiguous parameter block storage}
   \label{fig:dense_layout}
@@ -87,7 +87,7 @@ while reducing memory overhead and improving cache locality for the T$^2$SC pipe
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.85\linewidth]{figs/placeholder}
+  \includegraphics[width=0.75\linewidth]{figs/placeholder}
   \caption{Left: g2o's CSR format used to store the sparse graph, Right: using our flat array architecture to
   store the same graph.}
   \label{fig:connectivity_storage}
@@ -145,7 +145,7 @@ lookup without pointer traversal.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.85\linewidth]{figs/placeholder}
+  \includegraphics[width=0.75\linewidth]{figs/placeholder}
   \caption{T$^2$SC pipeline implementation: In producer stage, we copy the $\mathbf{Y}$ blocks
   into contiguous tiles, and in consumer stage, we compute the $\mathbf{Y} \cdot \mathbf{W}^T$ products
   using dense BLAS operations.}
@@ -160,7 +160,7 @@ libraries as described in \S\ref{subsec:blas_apis}.
 
 \textbf{BLAS-centric design philosophy.} Rather than implementing custom sparse matrix kernels, 
 we route all computationally intensive operations through standardized Level-3 BLAS interfaces. 
-This design choice enables automatic utilization of vendor-optimized libraries (OpenBLAS, Intel MKL, 
+This design choice enables automatic utilization of vendor-optimized libraries (OpenBLAS, Intel MKL, cuBLAS,
 Arm Performance Libraries) without code modifications, while leveraging decades of hand-tuned 
 assembly optimizations.
 
@@ -180,11 +180,11 @@ enable direct mapping of sparse BA operations to dense BLAS kernels:
     \toprule
     \textbf{BA Operation}         & \textbf{BLAS Kernel}    & \textbf{Data Source}                     \\
     \midrule
-    Hessian assembly $\mathbf{J}^T \mathbf{J}$     & \texttt{GEMM}           & Contiguous Jacobian blocks               \\
-    Gradient assembly $\mathbf{J}^T \mathbf{r}$    & \texttt{GEMV}           & Sequential residual access               \\
+    Hessian assembly $\mathbf{J}^T \mathbf{J}$     & \texttt{GEMM\_BATCH}           & Contiguous Jacobian blocks               \\
+    Gradient assembly $\mathbf{J}^T \mathbf{r}$    & \texttt{GEMM}           & Sequential residual access               \\
     Schur complement $\mathbf{Y} \mathbf{W}^T$     & \texttt{GEMM\_BATCH}    & T²SC contiguous tiles                   \\
     Landmark solve $\mathbf{B}^{-1}$               & \texttt{POTRF/POTRS}    & Dense landmark blocks                    \\
-    Pose solve $\mathbf{H}_{act}^{-1}$             & \texttt{LDLT}           & Reduced active Hessian                   \\
+    % Pose solve $\mathbf{H}_{act}^{-1}$             & \texttt{LDLT}           & Reduced active Hessian                   \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -200,6 +200,14 @@ layout optimizations from earlier subsections: dense parameter vectors (§\ref{s
 provide stride-1 access for BLAS routines, flat connectivity arrays (§\ref{subsec:connectivity_storage}) 
 eliminate pointer indirection overhead, and T²SC tiles (§\ref{subsec:t2sc}) ensure optimal cache 
 utilization during GEMM operations.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.75\linewidth]{figs/placeholder}
+  \caption{BLAS APIs implementation: We use the batched GEMM interface to compute the 
+  $\mathbf{Y} \cdot \mathbf{W}^T$ products using dense BLAS operations.}
+  \label{fig:blas_apis}
+\end{figure}
 
 \textbf{Section Summary.} The four-stage optimization pipeline transforms sparse bundle adjustment 
 into dense BLAS workloads: (1) dense parameter layout eliminates memory fragmentation, 
