@@ -1,1 +1,13 @@
-examples*
+example/*
+temp/*
+indent.log
+main.aux
+main.bbl
+main.blg
+main.fdb_latexmk
+main.fls
+main.log
+main.out
+main.synctex.gz
+.cursor/rules/project-rules.mdc
+sections/methodology.bak0

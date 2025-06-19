@@ -1,0 +1,68 @@
+% -------------------------------------------------
+%  Cache-Optimized, Parallel BA – ICRA 2026 Paper
+% -------------------------------------------------
+\documentclass[conference]{IEEEtran}
+
+% ---------- Packages ----------
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}      % professional tables
+\usepackage{siunitx}       % \SI{10}{\micro\second}
+\usepackage{subcaption}    % subfigures
+\usepackage{hyperref}
+\usepackage{amssymb}    % for \checkmark
+\usepackage{pifont}     % for more dingbats, if you prefer
+\usepackage{listings}      % for code listings
+\usepackage{algorithm}     % for algorithms
+\usepackage{algpseudocode} % for algorithmic pseudocode
+\usepackage{xcolor}        % for colors
+\newcommand{\cmark}{\checkmark}
+\newcommand{\xmark}{\ding{55}}  % or \ensuremath{\times}
+
+
+% ---------- Bibliography ----------
+\bibliographystyle{IEEEtran}
+\addtolength{\textfloatsep}{-0.5\baselineskip} % tighter floats
+
+% ---------- Title ----------
+\title{Cache-Optimized, Parallel Bundle Adjustment via Dense BLAS APIs for Embedded Multicore Platforms}
+
+\author{
+  \IEEEauthorblockN{First Author\IEEEauthorrefmark{1},
+                    Second Author\IEEEauthorrefmark{2}, and
+                    Third Author\IEEEauthorrefmark{1}}
+  \IEEEauthorblockA{\IEEEauthorrefmark{1}Department of Electronic and Telecommunication Engineering,\\
+                    University of Moratuwa, Sri Lanka\\
+                    Email: \{first,third\}@uom.lk}
+  \IEEEauthorblockA{\IEEEauthorrefmark{2}School of Computer Science and Engineering, NTU Singapore\\
+                    Email: second@ntu.edu.sg}
+}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+  ***Change This***We present a cache-optimized, highly parallel formulation of classical Bundle Adjustment (BA) that reorganises sparse Jacobians into large dense blocks, exposing the arithmetic to vendor-optimised BLAS APIs. The method scales across embedded multicore CPUs with OpenMP and remains backend-agnostic – it runs unmodified on OpenBLAS, MKL and ARMPL. On a quad-core Cortex-A55 we obtain a \SI{2}{\times} speed-up over Ceres‐Sparse while preserving accuracy on BAL dataset.
+\end{abstract}
+
+\begin{IEEEkeywords}
+  Bundle Adjustment, BLAS, Parallel Computing, Cache Optimization, Embedded SLAM.
+\end{IEEEkeywords}
+
+% ---------- Main Sections ----------
+\input{sections/intro}
+\input{sections/related_work}
+\input{sections/system_overview}
+\input{sections/methodology}
+\input{sections/experiments}
+\input{sections/results}
+\input{sections/conclusion}
+
+% ---------- Acknowledgment ----------
+\section*{Acknowledgment}
+% TODO: Add funding and collaboration acknowledgments
+This work was supported by …
+
+% ---------- References ----------
+\bibliography{bib/references}
+
+\end{document}

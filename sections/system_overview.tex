@@ -1,0 +1,38 @@
+\section{System Overview}
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla sapien nisl,
+interdum et venenatis nec, sagittis in libero. Vestibulum aliquam laoreet
+congue.
+
+Sed fringilla tincidunt magna, eu rutrum dolor interdum at. 
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figs/placeholder}
+  \caption{High-level architecture showing dense block generation and BLAS call
+           sequence (placeholder).}
+  \label{fig:overview_arch}
+\end{figure}
+
+\begin{table}[b]
+  \caption{Notation used throughout the paper}
+  \label{tab:overview_notation}
+  \centering
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Symbol & Meaning \\ \midrule
+    $\mathbf{x}$ & Parameter vector (poses and landmarks) \\
+    $\boldsymbol{\Omega}$ & Information matrix (inverse covariance) \\
+    $\boldsymbol{obs}$ & Observation vector \\
+    $\mathbf{r}$ & Residual vector $(\Omega .( \mathbf{reprojection} - \mathbf{obs}))$ \\
+    $\mathbf{J}_1, \mathbf{J}_2$ & $\Omega . \mathbf{Jacobian}$ matrix blocks w.r.t. poses and landmarks \\
+    $\mathbf{H}$ & Hessian matrix $(\mathbf{J}^T \mathbf{J})$ \\
+    $\mathbf{A}$ & Pose-pose $(\mathbf{J}_1^T \mathbf{J}_1)$ block diagonal matrix of $\mathbf{H}$ \\
+    $\mathbf{B}$ & Landmark-landmark $(\mathbf{J}_2^T \mathbf{J}_2)$ block diagonal matrix of $\mathbf{H}$ \\
+    $\mathbf{W}$ & Pose-landmark $(\mathbf{J}_1^T \mathbf{J}_2)$ cross-term matrix of $\mathbf{H}$ \\
+    $\mathbf{b}$ & Gradient vector $(\mathbf{J}^T \mathbf{r})$ \\
+    $\mathbf{Y}$ & Marginalization matrix $(\mathbf{W} \mathbf{B}^{-1})$ \\
+    $\mathbf{H}_{act}$ & Active Hessian $(\mathbf{A} - \mathbf{Y} \mathbf{W}^T)$ \\
+    $\mathbf{b}_{act}$ & Active gradient for pose parameters \\
+    \bottomrule
+  \end{tabular}
+\end{table}

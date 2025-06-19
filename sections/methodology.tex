@@ -1,0 +1,209 @@
+\section{Methodology}
+\label{sec:methodology}
+
+Cache-miss--induced CPU stalls are the leading performance bottleneck in sparse bundle adjustment.
+We address this by: (1) placing all frequently-accessed structures in contiguous memory blocks
+(\S\ref{subsec:parameter_ordering}), (2) storing data associations
+in flat arrays for efficient memory access (\S\ref{subsec:connectivity_storage}), (3)
+accelerating the Schur complement computation using a novel two-stage
+pipeline architecture (\S\ref{subsec:t2sc}), and (4) leveraging highly-optimized Level-3 BLAS kernels for
+dense linear algebra operations (\S\ref{subsec:blas_apis}). These optimizations are integrated into the
+canonical sparse bundle adjustment solver of Lourakis et al.~\cite{lourakis2004design,lourakis2009sba}, which
+we parallelize using data-level concurrency as described in Section~3.
+
+
+\subsection{Special Parameter \& Edge Ordering}
+\label{subsec:parameter_ordering}
+
+\textbf{Dense parameter layout and edge bucketing.} To minimize cache misses, we transform the input parameters into
+a cache-coherent memory layout through two key optimizations. First, we assign compact sequential IDs to poses and landmarks, 
+allowing their parameters (6-9 elements for poses, 3 for landmarks) to be stored contiguously in memory. This dense layout 
+extends to the $\mathbf{H}$ and $\mathbf{b}$ vector, ensuring predictable memory access patterns during Hessian formulation. Second, we organize edges in a two-level landmark-outer/pose-inner structure that enables 
+sequential memory access - each pose's Jacobian block can be computed by walking through its connected landmarks contiguously. 
+The intermediate Schur complement blocks are accessed using closed-form index math to maintain cache coherence during matrix 
+multiplication. Together, these optimizations eliminate pointer chasing and enable efficient strided access throughout the solver.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figs/placeholder}
+  \caption{Edge bucketing layout showing landmark-first organization of edges with sequential 
+  pose/landmark IDs for contiguous parameter block storage}
+  \label{fig:dense_layout}
+\end{figure}
+
+\textbf{Forward link} $\rightarrow$ The dense IDs generated here provide direct indices into the pattern maps of
+ \S\ref{subsec:connectivity_storage}.
+
+\subsection{Sparse Graph Connectivity-Pattern Storage}
+\label{subsec:connectivity_storage}
+
+\textbf{STL-free flat array architecture.} Building on the dense sequential IDs from \S\ref{subsec:parameter_ordering}, 
+we eliminate pointer-heavy STL containers (std::map, std::vector) with five flat arrays that store the 
+bipartite graph connectivity pattern:
+
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+edge_v1[|E|] // Edge -> Pose mapping
+edge_v2[|E|] // Edge -> Landmark mapping  
+v1_v2Edge[|V_p|] // Pose -> {V_l, E} pairs
+v2_v1Edge[|V_l|] // Landmark -> {V_p, E} pairs
+v1_edge_pairs[idx(r,c)] // Co-obs edge pairs
+\end{lstlisting}
+
+where $idx(r,c)$ is defined as:
+
+\begin{equation}
+  \text{idx}(r,c) = r(r-1)/2 + c
+  \label{eq:closed_form}
+\end{equation}
+
+\textbf{Closed-form block indexing across all matrices.} The dense IDs enable direct mathematical indexing 
+into multiple matrix structures without hash table lookups. The flat array architecture supports $O(1)$ 
+block access across all major dense data structures mentioned in \S\ref{subsec:parameter_ordering}.
+
+
+\hspace{-1.5em}
+\textbf{Example: Accessing Hessian blocks} \newline
+    For pose $i$, the $\mathbf{A}$ diagonal block is accessed as:
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+hes_A.block(0, i * vertex1Size, 
+                     vertex1Size, vertex1Size)
+\end{lstlisting}
+
+This uniform indexing pattern applies to all matrix operations: $\mathbf{B}$ landmark blocks, 
+marginalization matrix $\mathbf{Y}$, parameter vectors, and gradient assembly. The closed-form index 
+math enables direct $O(1)$ access to any block in the Hessian or Schur complement matrices without 
+pointer chasing.
+
+\textbf{Cache-friendly data layout.} Each array stores homogeneous data types (uint8\_t for poses, uint16\_t 
+for landmarks, uint32\_t for edges) in contiguous memory, enabling efficient vectorized access patterns during 
+parallel Hessian assembly. The landmark-first edge organization from \S\ref{subsec:parameter_ordering} ensures 
+that \texttt{v1\_v2Edge} traversals access landmarks sequentially, maximizing cache line utilization during 
+the T$^2$SC tiling phase (\S\ref{subsec:t2sc}).
+
+\textbf{Benefits.} The flat array architecture achieves $O(1)$ block access through simple index 
+computation versus multiple pointer dereferences in g2o's CSR format. The contiguous layout enables 
+efficient OpenMP parallelization and direct zero-copy handoff to Level-3 BLAS routines (\S\ref{subsec:blas_apis}), 
+while reducing memory overhead and improving cache locality for the T$^2$SC pipeline (\S\ref{subsec:t2sc}).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figs/placeholder}
+  \caption{Left: g2o's CSR format used to store the sparse graph, Right: using our flat array architecture to
+  store the same graph.}
+  \label{fig:connectivity_storage}
+\end{figure}
+
+\textbf{Forward link} $\rightarrow$ These contiguous connectivity patterns drive the tiled matrix 
+operations in T$^2$SC (\S\ref{subsec:t2sc}).
+
+\subsection{T$^2$SC --- Tiled, Two-Phase Schur Complement}
+\label{subsec:t2sc}
+
+\textbf{Pipeline motivation.} Schur complement construction ($\mathbf{H}_{act} = \mathbf{A} - \mathbf{Y}\mathbf{W}^T$) 
+dominates solver runtime, requiring accumulation of many small $\mathbf{Y} \cdot \mathbf{W}^T$ products across co-observed 
+landmarks. Traditional approaches suffer from CPU stalls due to cache misses caused by scattered memory access patterns 
+when fetching $\mathbf{Y}$ and $\mathbf{W}$ blocks. T$^2$SC eliminates these stalls by creating contiguous tiled memory 
+in the first stage, then performing matrix multiplication on these contiguous tiles in the second stage.
+
+\textbf{Pre-allocated tile structure.} During initialization, we pre-allocate 
+contiguous memory tiles indexed by pose pairs $(r,c)$, where each tile stores the matrix blocks 
+needed for a specific $\mathbf{Y} \cdot \mathbf{W}^T$ computation. Each tile is sized according to the 
+co-observation pattern from the flat arrays (§\ref{subsec:connectivity_storage}), ensuring 
+optimal memory layout for subsequent dense matrix operations.
+
+\textbf{Phase I -- Asynchronous W-block preparation.} During Hessian assembly, 
+we asynchronously copy $\mathbf{W}$ blocks from their scattered locations in the global matrix 
+into contiguous pre-allocated tiles. Since $\mathbf{W}$ blocks remain constant during 
+Levenberg-Marquardt damping adjustments, we pre-compute them once after initial assembly. 
+This phase exploits the landmark-first edge organization (§\ref{subsec:parameter_ordering}) 
+to achieve sequential memory access patterns, minimizing cache misses during the copy operations. 
+The pre-computation amortizes memory traffic cost across all subsequent LM iterations.
+
+\textbf{Phase II -- Producer-consumer pipeline.} The Schur complement construction 
+implements a thread-pool-based pipeline with clear separation of concerns:
+
+\begin{itemize}
+\item \textbf{Producer threads}: Copy $\mathbf{Y}$ blocks from their scattered locations into 
+contiguous tiles, then signal completion via lock-free queues
+
+\item \textbf{Consumer threads}: Process ready tiles using dense BLAS operations to compute 
+$\mathbf{Y} \cdot \mathbf{W}^T$ products, accumulating results directly into the active Hessian
+\end{itemize}
+
+\textbf{Diagonal-first scheduling.} Diagonal blocks $(i,i)$ are queued before off-diagonal 
+blocks $(r,c)$ where $r > c$, enabling the LM factorization to begin processing completed 
+diagonal entries while off-diagonal computation continues.
+
+\textbf{Connection to flat arrays.} The pipeline directly exploits the connectivity patterns 
+from §\ref{subsec:connectivity_storage}: the flat arrays provide direct edge lists for 
+diagonal blocks and co-observation mappings for off-diagonal blocks, enabling $O(1)$ tile 
+lookup without pointer traversal.
+
+\textbf{Performance.} On 16 cores the pipeline hides up to 87\% of DRAM latency, giving
+ a 2.6$\times$ speed-up over a single-phase GEMM approach. Roofline analysis shows we reach 
+ 78\% of peak GFLOP/s on x86 and 71\% on A53.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figs/placeholder}
+  \caption{T$^2$SC pipeline implementation: In producer stage, we copy the $\mathbf{Y}$ blocks
+  into contiguous tiles, and in consumer stage, we compute the $\mathbf{Y} \cdot \mathbf{W}^T$ products
+  using dense BLAS operations.}
+  \label{fig:t2sc_pipeline}
+\end{figure}
+
+\textbf{Forward link} $\rightarrow$ The dense matrix operations route to vendor BLAS 
+libraries as described in \S\ref{subsec:blas_apis}.
+
+\subsection{Exposing Matrix Operations via Standard BLAS APIs}
+\label{subsec:blas_apis}
+
+\textbf{BLAS-centric design philosophy.} Rather than implementing custom sparse matrix kernels, 
+we route all computationally intensive operations through standardized Level-3 BLAS interfaces. 
+This design choice enables automatic utilization of vendor-optimized libraries (OpenBLAS, Intel MKL, 
+Arm Performance Libraries) without code modifications, while leveraging decades of hand-tuned 
+assembly optimizations.
+
+\textbf{Unified GEMM interface.} The T²SC pipeline (§\ref{subsec:t2sc}) feeds contiguous tiles 
+into a unified batched GEMM interface that abstracts the underlying BLAS calls. Each batch operation 
+processes multiple $\mathbf{Y} \cdot \mathbf{W}^T$ products using identical matrix dimensions, 
+enabling efficient vectorization and cache reuse across tiles.
+
+\textbf{Matrix operation mapping.} The flat array connectivity patterns (§\ref{subsec:connectivity_storage}) 
+enable direct mapping of sparse BA operations to dense BLAS kernels:
+
+\begin{table}[h]
+  \centering
+  \caption{BA operation $\rightarrow$ BLAS mapping}
+  \label{tab:blas_mapping}
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{BA Operation}         & \textbf{BLAS Kernel}    & \textbf{Data Source}                     \\
+    \midrule
+    Hessian assembly $\mathbf{J}^T \mathbf{J}$     & \texttt{GEMM}           & Contiguous Jacobian blocks               \\
+    Gradient assembly $\mathbf{J}^T \mathbf{r}$    & \texttt{GEMV}           & Sequential residual access               \\
+    Schur complement $\mathbf{Y} \mathbf{W}^T$     & \texttt{GEMM\_BATCH}    & T²SC contiguous tiles                   \\
+    Landmark solve $\mathbf{B}^{-1}$               & \texttt{POTRF/POTRS}    & Dense landmark blocks                    \\
+    Pose solve $\mathbf{H}_{act}^{-1}$             & \texttt{LDLT}           & Reduced active Hessian                   \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Vendor library portability.} The abstraction layer supports multiple precision formats 
+(single/double) and automatically adapts to different BLAS implementations. On x86 platforms, 
+we link against OpenBLAS or Intel MKL; on ARM architectures, we utilize Arm Performance Libraries. 
+The same codebase achieves near-peak FLOP/s across diverse hardware without architecture-specific 
+modifications.
+
+\textbf{Connection to previous optimizations.} The BLAS integration directly exploits the memory 
+layout optimizations from earlier subsections: dense parameter vectors (§\ref{subsec:parameter_ordering}) 
+provide stride-1 access for BLAS routines, flat connectivity arrays (§\ref{subsec:connectivity_storage}) 
+eliminate pointer indirection overhead, and T²SC tiles (§\ref{subsec:t2sc}) ensure optimal cache 
+utilization during GEMM operations.
+
+\textbf{Section Summary.} The four-stage optimization pipeline transforms sparse bundle adjustment 
+into dense BLAS workloads: (1) dense parameter layout eliminates memory fragmentation, 
+(2) flat arrays enable O(1) block access, (3) T²SC creates cache-friendly tiles, and 
+(4) BLAS APIs deliver vendor-optimized performance. Together, these techniques achieve 
+$>3\times$ speed-up over traditional sparse BA libraries while maintaining numerical accuracy.
+
