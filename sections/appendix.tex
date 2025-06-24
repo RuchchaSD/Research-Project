@@ -20,8 +20,56 @@
 \subsection{Additional Experimental Results}
 \label{app:additional_results}
 
-% TODO: Add extended experimental results, additional datasets, or 
-% performance comparisons that couldn't fit in the main results section
+This section provides detailed scaling characteristics for the synthetic benchmark suite referenced in Section~\ref{subsec:exp_synth}. The following tables show the precise problem sizes and computational complexity metrics for both the pose and landmark scaling sweeps.
+
+\begin{table*}[h]
+  \begin{minipage}[t]{0.48\textwidth}
+    \caption{Pose sweep: problem size versus cost drivers.}
+    \label{tab:synth_pose}
+    \centering\footnotesize
+    \begin{tabular}{@{}cccc@{}}
+      \toprule
+      Poses & Landmarks & $\,$Observations\,$^{\dagger}$ &
+      $\#$\,Y$\!W^{\!\top}$ tiles\\
+      \midrule
+      10 & 10\,000 & 40\,000 & 20\,044\\
+      20 & 10\,000 & 40\,000 & 70\,213\\
+      30 & 10\,000 & 40\,000 & 119\,498\\
+      40 & 10\,000 & 40\,000 & 218\,828\\
+      50 & 10\,000 & 40\,000 & 303\,770\\
+      60 & 10\,000 & 40\,000 & 453\,498\\
+      70 & 10\,000 & 40\,000 & 569\,260\\
+      80 & 10\,000 & 40\,000 & 777\,922\\
+      90 & 10\,000 & 40\,000 & 920\,175\\
+      100 & 10\,000 & 40\,000 & 1\,177\,270\\
+      \bottomrule
+    \end{tabular}
+    \vspace{2pt}\\
+    \footnotesize$^{\dagger}$\,Four observations per landmark.
+  \end{minipage}
+  \hfill
+  \begin{minipage}[t]{0.48\textwidth}
+    \caption{Landmark sweep: problem size versus cost drivers.}
+    \label{tab:synth_lmk}
+    \centering\footnotesize
+    \begin{tabular}{@{}cccc@{}}
+      \toprule
+      Poses & Landmarks & Observations & $\#$\,Y$\!W^{\!\top}$ tiles\\
+      \midrule
+       40 & 10\,000 &  40\,000 &   221\,862\\
+       40 & 20\,000 &  80\,000 &   443\,766\\
+       40 & 30\,000 & 120\,000 &   659\,369\\
+       40 & 40\,000 & 160\,000 &   878\,919\\
+       40 & 50\,000 & 200\,000 & 1\,098\,073\\
+       40 & 60\,000 & 240\,000 & 1\,316\,027\\
+       40 & 70\,000 & 280\,000 & 1\,543\,366\\
+       40 & 80\,000 & 320\,000 & 1\,763\,846\\
+       40 & 90\,000 & 360\,000 & 1\,977\,473\\
+       40 & 100\,000 & 400\,000 & 2\,198\,656\\
+      \bottomrule
+    \end{tabular}
+  \end{minipage}
+\end{table*}
 
 \subsection{Implementation Detailssdsd}
 \label{app:implementation}
@@ -79,13 +127,13 @@
 \end{algorithmic}
 \end{algorithm}
 
-\paragraph{Design Highlights.}
-\begin{itemize}[leftmargin=*]
-  \item \textbf{Block-Diagonal Storage:} Pose ($\mathbf{A}_i$) and landmark ($\mathbf{B}_j$) blocks are kept in contiguous column-major slabs to maximise BLAS level-3 throughput.
-  \item \textbf{Edge-Centric Accumulation:} The edge lists \verb|v1_edge|, \verb|v2_edge| drive accumulation loops without expensive indirections.
-  \item \textbf{Pose-Pair Hashing:} Off-diagonal look-ups use the compact index $k=\tfrac{i(i-1)}{2}+j$ into \verb|v1_edge_pairs| to achieve $O(1)$ co-observation access.
-  \item \textbf{Mixed Precision:} Jacobians are differentiated in \texttt{double} yet stored as the compile-time \texttt{Scalar} type (\texttt{float} by default).
-  \item \textbf{Jacobi Scaling:} Column-wise norms yield scale vector $\mathbf{s}$; its inverse rescales Jacobian columns in place, improving condition numbers.
-  \item \textbf{Pipeline Mode:} When \texttt{usePipeline} is enabled, W-block assembly runs asynchronously while the CPU assembles Schur tiles, hiding memory latency.
-\end{itemize}
+% \paragraph{Design Highlights.}
+% \begin{itemize}[leftmargin=*]
+%   \item \textbf{Block-Diagonal Storage:} Pose ($\mathbf{A}_i$) and landmark ($\mathbf{B}_j$) blocks are kept in contiguous column-major slabs to maximise BLAS level-3 throughput.
+%   \item \textbf{Edge-Centric Accumulation:} The edge lists \verb|v1_edge|, \verb|v2_edge| drive accumulation loops without expensive indirections.
+%   \item \textbf{Pose-Pair Hashing:} Off-diagonal look-ups use the compact index $k=\tfrac{i(i-1)}{2}+j$ into \verb|v1_edge_pairs| to achieve $O(1)$ co-observation access.
+%   \item \textbf{Mixed Precision:} Jacobians are differentiated in \texttt{double} yet stored as the compile-time \texttt{Scalar} type (\texttt{float} by default).
+%   \item \textbf{Jacobi Scaling:} Column-wise norms yield scale vector $\mathbf{s}$; its inverse rescales Jacobian columns in place, improving condition numbers.
+%   \item \textbf{Pipeline Mode:} When \texttt{usePipeline} is enabled, W-block assembly runs asynchronously while the CPU assembles Schur tiles, hiding memory latency.
+% \end{itemize}
 % -------------------------------------------------------------------- 

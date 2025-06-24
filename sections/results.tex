@@ -21,24 +21,43 @@ convergence on several datasets, most notably Dubrovnik-1 where its final $\chi^
 our parameter scaling and mixed-precision differentiation strategies in maintaining both speed and 
 accuracy.
 
-\begin{table*}[t]
-\caption{Accuracy and runtime after ten LM iterations. Speed-up is relative to g2o.}
-\label{tab:results_runtime}
+\begin{table}[!htbp]
+\caption{Accuracy comparison after ten LM iterations.}
+\label{tab:results_accuracy}
 \centering
-\begin{tabular}{@{}lcccccccc@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-& \multicolumn{4}{c}{\textbf{$\chi^{2}$ after iteration 10}} & \multicolumn{4}{c}{\textbf{Time for 10 iterations [ms]}} \\
-\cmidrule(lr){2-5} \cmidrule(lr){6-9}
-Dataset & Ours & g2o & Final & \% vs Final & Ours A53 & g2o A53 & Ours i9 & g2o i9 \\
+& \multicolumn{4}{c}{\textbf{$\chi^{2}$ after iteration 10}} \\
+\cmidrule(lr){2-5}
+Dataset & Ours & g2o & Final & \% vs Final \\
 \midrule
-Ladybug‑1   & 26700.7 & 30980.5 & 26688.7 & +0.04\% & 3202 & 8601 & 189 & 1662 \\
-Dubrovnik‑1 & 36067.7 & 124093.1 & 36067.7 & +0.00\% & 9651 & 17418 & 680 & 1562 \\
-Ladybug‑2   & 34288.4 & 34391.6 & 34198.9 & +0.26\% & 7214 & 14561 & 471 & 3000 \\
-Trafalgar‑3 & 103754.9 & 141586.9 & 103218.1 & +0.52\% & 9138 & 16999 & 836 & 2159 \\
-Ladybug‑3   & 118788.8 & 129259.0 & 118749.2 & +0.03\% & 36325 & 43487 & 1223 & 4433 \\
+Ladybug‑1   & 26700.7 & 30980.5 & 26688.7 & +0.04\% \\
+Dubrovnik‑1 & 36067.7 & 124093.1 & 36067.7 & +0.00\% \\
+Ladybug‑2   & 34288.4 & 34391.6 & 34198.9 & +0.26\% \\
+Trafalgar‑3 & 103754.9 & 141586.9 & 103218.1 & +0.52\% \\
+Ladybug‑3   & 118788.8 & 129259.0 & 118749.2 & +0.03\% \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
+
+\begin{table}[!htbp]
+\caption{Runtime comparison for 10 iterations [ms].}
+\label{tab:results_runtime}
+\centering
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+& \multicolumn{4}{c}{\textbf{Time for 10 iterations [ms]}} \\
+\cmidrule(lr){2-5}
+Dataset & Ours A53 & g2o A53 & Ours i9 & g2o i9 \\
+\midrule
+Ladybug‑1   & 3202 & 8601 & 189 & 1662 \\
+Dubrovnik‑1 & 9651 & 17418 & 680 & 1562 \\
+Ladybug‑2   & 7214 & 14561 & 471 & 3000 \\
+Trafalgar‑3 & 9138 & 16999 & 836 & 2159 \\
+Ladybug‑3   & 36325 & 43487 & 1223 & 4433 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 % -------------------------------------------------------
 \subsection{Per-Iteration Scaling on the Synthetic Suite}
@@ -54,7 +73,7 @@ $\mathbf Y\mathbf W^{\!\top}$ tile on the i9 CPU. This result supports our centr
 cache-friendly data organization transforms the workload into a predictable, compute-bound 
 problem dominated by matrix multiplication.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
   % Export the PNG/PDF produced by the analysis script to figs/ first.
   \includegraphics[width=\linewidth]{figs/synth_scaling_YWt}
@@ -70,17 +89,14 @@ problem dominated by matrix multiplication.
 
 \subsection{Ablation Study}
 \label{subsec:results_ablation}
+
 \paragraph{(a) Impact of T\textsuperscript{2}SC.} Table~\ref{tab:ablate_t2sc} shows that disabling 
 T$^{2}$SC consistently slows performance on the memory-bandwidth-limited A53 by 2.3–3.2$\times$. 
 On the i9, which has a much larger cache, the benefits are even more pronounced on smaller 
 problems (up to 12.9$\times$) but diminish as the total tile memory footprint grows. Nonetheless, 
 it provided a clear net benefit in all tested scenarios.
 
-\paragraph{(b) Single vs.\ double precision.}  Table~\ref{tab:ablate_precision} confirms that 
-float32 reduces memory footprint by 38.9–42.0\% while maintaining $\chi^{2}$ accuracy within 
-0.01\% of double‑precision results, with no observable loss in convergence quality.
-
-\begin{table}[h]
+\begin{table}[!htbp]
 \caption{Ablation (a): T$^{2}$SC on/off runtime comparison (ms).}
 \label{tab:ablate_t2sc}
 \centering
@@ -99,7 +115,11 @@ Ladybug‑3   & 187.8 & 502.0 &  15.3 & 169.0 \\
 \end{tabular}
 \end{table}
 
-\begin{table*}[h]
+\paragraph{(b) Single vs.\ double precision.}  Table~\ref{tab:ablate_precision} confirms that 
+float32 reduces memory footprint by 38.9–42.0\% while maintaining $\chi^{2}$ accuracy within 
+0.01\% of double‑precision results, with no observable loss in convergence quality.
+
+\begin{table}[!htbp]
 \caption{Ablation (b): float32 vs double precision comparison.}
 \label{tab:ablate_precision}
 \centering
@@ -114,7 +134,7 @@ Trafalgar‑3 & 123822.656 & 123820.275 & 39.0\% \\
 Ladybug‑3   & 119939.984 & 119940.173 & 42.0\% \\
 \bottomrule
 \end{tabular}
-\end{table*}
+\end{table}
 
 \subsection{Peak Memory Consumption}
 \label{subsec:results_ram}
@@ -125,7 +145,7 @@ with peak usage reaching \SI{290.4}{MB} on the largest dataset. Interestingly, o
 trades memory for significant speed improvements. Future work will explore tile compression 
 and out‑of‑core variants.
 
-\begin{table}[h]
+\begin{table}[!htbp]
 \caption{Peak RAM usage (values in MB).}
 \label{tab:peak_ram}
 \centering
@@ -133,7 +153,7 @@ and out‑of‑core variants.
 \toprule
 & \multicolumn{5}{c}{Dataset} \\
 \cmidrule(lr){2-6}
-Implementation & Ladybug-1 & Dubrovnik-1 & Ladybug-2 & Trafalgar-3 & Ladybug-3 \\
+Implementation & Lady-1 & Dub-1 & Lady-2 & Traf-3 & Lady-3 \\
 \midrule
 Ours (+T$^{2}$SC) & 101.7 & 219.2 & 148.5 & 206.0 & 290.4 \\
 Ours (-T$^{2}$SC) &  48.0 & 104.2 &  64.6 &  94.9 & 115.8 \\

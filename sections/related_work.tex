@@ -1,104 +1,92 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Background & Related Work
+% Related Work
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\section{Background \& Related Work}
-\label{sec:related}
+\section{Background and Related Work}\label{sec:related_work}
 
-% This section surveys the landscape that motivates our cache-optimized, BLAS-centric
-% approach.  We group prior art into five themes: the role of bundle adjustment (BA)
-% in SLAM and structure-from-motion (SfM), numerical strategies based on
-% Levenberg–Marquardt (LM) and the Schur complement, widely-used BA software
-% libraries, dense BLAS–oriented acceleration, and finally embedded or
-% multicore‐specific implementations.
 
-%------------------------------------------------------------------------
-\subsection{Bundle Adjustment in SLAM and SfM}
-\label{sec:ba_slam}
 
-% BA refines camera poses $\mathbf{T}_{wc}$ and 3-D points
-% $\mathbf{X}\!\in\!\mathbb R^{3}$ by minimizing the reprojection cost
-% $\sum_{i,j}\!\rho\!\bigl(\|\mathbf r_{ij}\|^{2}\bigr)$, where
-% $\mathbf r_{ij}$ is the pixel error of landmark~$j$ in image~$i$ and
-% $\rho(\cdot)$ is a robust loss~\cite{Hartley2003,Lourakis2009}.
-% %
-% \textbf{Global} pipelines such as COLMAP perform full BA after incremental
-% reconstruction~\cite{Schonberger2016}, whereas real-time SLAM systems
-% (e.g.\ ORB-SLAM3~\cite{MurArtal2021}) use \textbf{local} sliding-window BA to
-% bound latency.  Window size, marginalization policy, and graph sparsity
-% (edge fixing vs.\ landmark elimination) directly impact accuracy and runtime;
-% comparative studies are given in~\cite{Engel2018,Usenko2019,Pfrommer2020}.
+This section revisits the classical bottlenecks of bundle adjustment (BA) and surveys three principal acceleration directions—CPU, 
+GPU, and custom hardware—highlighting why a \emph{dense‑BLAS, cache‑aware CPU design} remains a compelling sweet‑spot for embedded 
+robotics.
 
-%------------------------------------------------------------------------
-\subsection{Levenberg--Marquardt and the Schur Complement}
-\label{sec:lm_schur}
+\subsection{Bundle Adjustment Bottlenecks and the Schur Complement}
+\label{subsec:ba_bottlenecks} BA refines camera poses and 3‑D landmarks by minimizing re‑projection error via damped Gauss–Newton or Levenberg–Marquardt (LM) iterations \cite{triggs1999bundle,hartley2003multiple}. The normal equations 
+induce a bipartite block Hessian:
+\begin{equation}
+\mathbf{H} = \begin{bmatrix}
+\mathbf{A} & \mathbf{W} \\
+\mathbf{W}^T & \mathbf{B}
+\end{bmatrix}
+\end{equation}
+where $\mathbf{A}$, $\mathbf{B}$, and $\mathbf{W}$ encode pose–pose, landmark–landmark, and cross interactions. Early software such as
+SBA~\cite{lourakis2009sba} constructed the full Hessian and used dense/banded factorisation, quickly becoming memory‑bound for thousands of landmarks.
 
-% LM blends Gauss–Newton with a trust-region damping term
-% $\lambda\operatorname{diag}(\mathbf J^{\!\top}\mathbf J)$, yielding robust
-% convergence for ill-conditioned BA~\cite{Lourakis2005}.  Eliminating
-% landmarks via the two-phase Schur complement reduces the normal equations to
-% a camera-only system
-% $\mathbf S\Delta\boldsymbol\theta=-\mathbf g$ whose assembly and solution
-% dominate the computational cost~\cite{Agarwal2012,Chen2022}.  Recent work
-% explores block-Jacobian tiling~\cite{Merry2016} and hierarchical damping
-% schemes~\cite{Zhang2023}, yet memory traffic for forming $\mathbf S$
-% remains the primary bottleneck.
+The \textbf{Schur complement} eliminates landmarks analytically \cite{Konolige2010SparseSB}, forming the reduced camera system:
+\begin{equation}
+(\mathbf{A} - \mathbf{W}\mathbf{B}^{-1}\mathbf{W}^T)\boldsymbol{\delta}_{\text{poses}} = \mathbf{b}_{\text{poses}} - \mathbf{W}\mathbf{B}^{-1}\mathbf{b}_{\text{landmarks}}
+\end{equation}
+Although this reduces factorisation cost from $\mathcal{O}((n_p + n_l)^3)$ to $\mathcal{O}(n_p^3)$, constructing 
+$\mathbf{H}_{\text{act}} = \mathbf{A} - \mathbf{W}\mathbf{B}^{-1}\mathbf{W}^T$ now dominates runtime (often $\geq$60\%) 
+because it requires per‑landmark inversions and irregular block accumulations that thrash caches—especially on small L2/L3 
+embedded CPUs.
 
-%------------------------------------------------------------------------
-\subsection{General-Purpose BA Libraries}
-\label{sec:ba_libs}
 
-% \textbf{g2o}~\cite{Kuemmerle2011}, \textbf{Ceres}~\cite{Agarwal2012} and
-% \textbf{SBA}~\cite{Ni2007} expose flexible graph abstractions but rely on
-% sparse block storage and CPU-centric factorization back-ends.  Their design
-% decisions—dynamic memory, pointer-heavy containers, and irregular
-% kernel launch patterns—complicate direct mapping to accelerators.  For
-% instance, Ceres uses
-% \texttt{BlockSparseMatrix} (compressed row) and an in-house
-% \texttt{schur\_eliminator}, while g2o employs template metaprogramming for
-% edge types; neither provides a BLAS-level interface.
+\subsection{Acceleration Approaches}\label{subsec:acceleration}
 
-%------------------------------------------------------------------------
-\subsection{Dense BLAS APIs and Batched GEMM}
-\label{sec:blas}
+\paragraph*{CPU‑based Solvers} Widely‑used libraries like \textsc{g2o}~\cite{kummerle2011g} and 
+\textsc{Ceres}~\cite{agarwal2012ceres} implement the Schur complement using compressed sparse row (CSR) formats with 
+scatter-gather operations that suffer from irregular memory access. While multithreaded Jacobian assembly and block-aligned
+ storage~\cite{wu2011multicore} improve locality and demonstrate 2-3× speedups on embedded ARM processors, existing solvers 
+ still spend over 50\% of runtime in memory-bound operations with frequent cache misses, especially when scaling beyond 
+ one NUMA socket.
 
-% Modern accelerators deliver peak throughput through hand-tuned BLAS 3
-% routines.  GPU libraries such as \emph{cuBLAS} and FPGA toolchains like
-% \emph{Vitis BLAS} offer batched GEMM kernels that amortize launch overhead
-% across many small matrices.  MEGBA~\cite{Harhash2017} and MAGMA-BA
-% demonstrate $2$–$3\times$ speed-ups by re-organizing BA blocks into dense
-% tiles.  On ARM Cortex-A clusters, ARM Performance Libraries (ARMPL) attain
-% $>$80\,\% of peak FLOP/W, outperforming sparse kernels both in energy and
-% time~\cite{Zhang2024}.  However, all prior works require bespoke tiling
-% logic tightly coupled to the target device.
+\paragraph*{GPU Approaches} Solutions like PBA~\cite{wu2011multicore} and MegBA~\cite{ren2022megba} parallelize Schur 
+complement computation across thousands of GPU threads, achieving impressive 10-30× speedups over single-threaded CPU 
+implementations. However, their high power requirements ($\geq$200W) and PCIe transfer overheads make them unsuitable for 
+mobile robotics applications.
 
-%------------------------------------------------------------------------
-\subsection{Embedded and Multicore BA Implementations}
-\label{sec:embedded}
+\paragraph*{Dedicated Hardware} FPGA/ASIC accelerators including $\pi$‑BA~\cite{qin2019pi} and BAX~\cite{sun2020bax} 
+achieve millisecond-level Schur complement computation by streaming operations fully on-chip. While this enables 
+significant energy savings, these designs face flexibility constraints - requiring substantial hardware resources 
+(141.5 BRAMs for $\pi$‑BA, nearly exhausting the 144 BRAMs available on modern K26 SoCs) or imposing strict problem size limits (16 poses, 256 landmarks for BAX).
 
-% FPGA accelerators such as $\pi$-BA~\cite{Liu2020} and BAX~\cite{Sun2020} achieve
-% sub-millisecond Schur reductions but at steep LUT/BRAM cost or by shrinking
-% problem size.  Jetson-class GPU solvers (e.g.\ the MEGBA Jetson port) face
-% memory-bandwidth ceilings and kernel launch overhead~\cite{Harhash2017}.
-% Many-core CPU efforts—Pollard \emph{et al.} on Xeon Phi~\cite{Pollard2015},
-% Chen \emph{et al.} on Epyc Rome—are largely limited by cache capacity and DRAM
-% traffic.  These observations motivate our three novelties:
-% \emph{T\textsuperscript{2}SC}, \emph{BEC}, and \emph{CABR}, which together
-% tile the Schur phase, route \emph{all} heavy kernels through standard BLAS,
-% and eliminate pointer chasing via flat arrays.
-
-%------------------------------------------------------------------------
-% A taxonomy figure and a comparison table remain as placeholders.
 \begin{figure}[t]
   \centering
   % TODO: replace with a real diagram of categories and example papers.
   \includegraphics[width=0.85\linewidth]{figs/placeholder}
-  \caption{Taxonomy of BA acceleration strategies (placeholder).}
+  \caption{Taxonomy of BA acceleration approaches: (1) CPU solvers like g2o/Ceres using CSR formats and scatter-gather operations, 
+  (2) GPU solutions like PBA/MegBA leveraging thousands of threads but requiring high power, (3) FPGA/ASIC accelerators like 
+  $\pi$-BA/BAX achieving millisecond latency with resource constraints, and (4) our dense BLAS approach enabling portable 
+  acceleration via vendor-optimized libraries.}
   \label{fig:rw_taxonomy}
 \end{figure}
 
+\subsection{BLAS APIs for Hardware Acceleration}\label{subsec:blas_apis}
+
+Modern processors and accelerators expose optimized matrix operations through standardized BLAS APIs~\cite{blackford2002updated}, 
+enabling portable access to vendor-tuned kernels like batched \texttt{GEMM} and \texttt{SYRK}. Key implementations include 
+Intel oneMKL, Arm Performance Libraries (ArmPL), OpenBLAS, NVIDIA cuBLAS, and Xilinx Vitis BLAS~\cite{intel2023mkl,arm2023armpl,openblas2023,nvidia2025cublas,xilinx2024vitisblas}.
+
+These libraries deliver 80–95\% of peak FLOPS for BA-relevant matrix sizes (32–96 blocks) by leveraging specialized 
+instructions: oneMKL uses AMX tiles on Xeon, ArmPL employs SVE2 on Cortex-A, and cuBLAS dispatches Tensor Cores via 
+\texttt{cublasGemmEx}. However, existing BA solvers fail to exploit this potential due to irregular sparse operations that 
+bypass Level-3 BLAS entirely. Our approach systematically maps the complete Schur complement pipeline to dense BLAS calls, 
+achieving portable acceleration across all these platforms.
+
+Despite these advances, existing BA solvers remain memory-bound due to pointer-based sparse structures and irregular access 
+patterns that bypass Level-3 BLAS optimizations entirely. Our approach addresses this fundamental limitation through 
+comprehensive redesign of the Schur complement pipeline using dense parameter ordering 
+(\S\ref{subsec:parameter_ordering}), flat connectivity arrays (\S\ref{subsec:connectivity_storage}), T²SC tiling 
+(\S\ref{subsec:t2sc}), and complete BLAS mapping (\S\ref{subsec:blas_apis}) to achieve cache-friendly, portable acceleration 
+across CPU architectures.
+
+%------------------------------------------------------------------------
+% A taxonomy figure and a comparison table remain as placeholders.
+
+
 % \begin{table}[b]
-%   \caption{Representative BA accelerators (placeholder).  “Dense” indicates
-%            whether sparse blocks are re-packed into dense tiles; “Acc.”
+%   \caption{Representative BA accelerators (placeholder).  "Dense" indicates
+%            whether sparse blocks are re-packed into dense tiles; "Acc."
 %            lists the primary hardware accelerator used.}
 %   \label{tab:rw_comparison}
 %   \centering
