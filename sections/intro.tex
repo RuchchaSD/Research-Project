@@ -1,4 +1,4 @@
-\section{Introduction}
+\section{Introduction}\label{sec:intro}
 
 
 \begin{figure}[t]
@@ -8,14 +8,93 @@
   \label{fig:intro_pipeline}
 \end{figure}
 
-\begin{table}[b]
-  \caption{Summary of contributions (placeholder)}
-  \label{tab:intro_contrib}
-  \centering
-  \begin{tabular}{@{}ll@{}}
-    \toprule
-    Problem & Our Remedy \\ \midrule
-    Sparse cache misses & Dense block reorder \\
-    Serial solver & OpenMP parallel BA \\ \bottomrule
-  \end{tabular}
-\end{table}
+\IEEEPARstart{V}{isual} simultaneous localisation and mapping (SLAM) and structure‑from‑motion (SfM) systems 
+reconstruct camera motion and 3‑D structure from image sequences and have become indispensable in robotics, 
+mixed‑reality, and autonomous navigation~\cite{cadena2016past,hartley2003multiple}.
+Modern pipelines split into a front‑end for visual odometry and loop detection and a back‑end for optimisation, typically 
+bundle adjustment (BA)\cite{campos2021orb}.
+The front‑end is no longer the primary time sink: ORB extractors running on SIMD\cite{rublee2011orb}, FPGA‑accelerated 
+ORB variants that reach $>$1.2,kFPS at \SI{2.1}{\watt}\cite{wang2022fpga_orb}, and compact CNN keypoint‑descriptor heads such 
+as MobileSP that achieve \SI{4}{ms} inference on a Jetson Xavier NX\cite{zhang2022mobilesp} deliver 
+realtime feature tracks even on edge devices.
+As a result, the computational bottleneck has migrated to the BA back‑end, which jointly refines camera poses and landmarks 
+via nonlinear least‑squares.
+
+On embedded CPUs—from quad‑core Cortex‑A53 to octa‑core automotive SoCs—profiling studies report that BA consumes 
+\SIrange{55}{70}{\percent} of the total SLAM runtime despite sliding windows of only 10–15 keyframes~\cite{matthee2024predicting}.
+The culprit is not arithmetic intensity but memory behaviour: pointer‑rich sparse data layouts in \textsc{g2o} or \textsc{Ceres} 
+trigger cache misses that stall the pipeline for more than 70 \% of cycles~\cite{triggs1999bundle}.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Several acceleration strategies have been explored to address this bottleneck. 
+\textbf{GPUs.}\;PBA~\cite{wu2011multicore} and MegBA~\cite{ren2022megba} deliver over 500~MFLOPS/W on desktop GPUs, 
+yet still exceed the power budget of mobile robots.
+
+\textbf{Dedicated hardware.}\;FPGA/ASIC accelerators such as $\pi$‑BA~\cite{qin2019pi} and BAX~\cite{sun2020bax} 
+achieve \emph{low‑millisecond} Schur‑complement builds, but only after inserting sizeable on‑chip RAM buffers that 
+tame BA's irregular access pattern, inflating LUT/FF counts and power. $\pi$‑BA accelerates just the Schur stage and 
+consumes 141.5 Block RAMs—about 98~\% of the 144 BRAMs available on a Kria KR260—leaving little headroom for the 
+remainder of a SLAM stack. BAX lowers BRAM pressure with their DAE architecture but had to cap the optimisation window 
+to 16 camera poses and 256 landmarks, a setting adequate for synthetic demos yet too restrictive for real deployments, 
+and still relies on handcrafted memory banking.
+
+\textbf{Multicore CPUs.}\;State‑of‑the‑art BA solvers such as \textsc{g2o}~\cite{kummerle2011g} and 
+\textsc{Ceres}~\cite{agarwal2012ceres} store the Jacobian/Hessian in compressed sparse row/column (CSR/CSC) form and 
+drive the solve with sparse‑BLAS plus OpenMP threads. This fits cache‑rich desktop CPUs, but on embedded cores the 
+pointer chasing in CSR converts each FLOP into multiple uncached reads, throttling throughput and wasting energy. 
+Because CSR indirection keeps arithmetic scattered behind pointer walks, off‑the‑shelf solvers expose no clear compute 
+kernel to offload; duplicating the row‑pointer chase would demand on‑chip buffers that mid‑tier FPGAs or NPUs simply lack.
+
+These observations motivate a rethink: Can we keep the light‑weight control flow on the CPU yet off‑load the numerically 
+intensive kernels to any attached accelerator—GPU, NPU, or FPGA—through platform‑agnostic interfaces (such as BLAS\cite{BLAS} APIs) and thereby harvest 
+substantial speed‑ups?
+
+We present a BA solver designed from scratch for multicore embedded CPUs that turns sparse BA into 
+batched dense GEMMs through three principles: (1) \emph{pointer‑free storage} that guarantees stride‑1 access, (2) a 
+\emph{tiled two‑phase Schur complement} (T$^{2}$SC) that overlaps memory copies with BLAS, and (3) a 
+\emph{BLAS‑centric kernel map} that lets us swap OpenBLAS, MKL, or ARMPL at link time.
+
+Our main contributions are:
+\begin{itemize}[leftmargin=*]\setlength\itemsep{2pt}
+\item A dense local-ID scheme and landmark-first edge bucketing that eliminate pointer chasing (\S\ref{subsec:parameter_ordering});
+\item Flat connectivity arrays enabling $\mathcal{O}(1)$ block lookup across Jacobian, Hessian and Schur 
+structures (\S\ref{subsec:connectivity_storage});
+\item \textbf{T$^{2}$SC}: a producer--consumer tiled Schur pipeline that hides memory latency behind batched 
+GEMM (\S\ref{subsec:t2sc});
+\item A complete mapping of BA kernels to Level-3 BLAS, allowing drop-in use of vendor libraries (\S\ref{subsec:blas_apis});
+\item An open-source C++ implementation that matches \textsc{g2o}'s final $\chi^{2}$ on the BAL benchmark while reducing 
+the 10-iteration wall-time by up to $3\times$ (Core~i9-9900K) and $2\times$ (Cortex-A53) (\S\ref{sec:results}).
+\end{itemize}
+
+% \subsection*{E. Paper Organisation}
+% Section II surveys related work; Section III gives a high‑level overview; Section IV details the methodology; Section V 
+% outlines the experimental protocol; Section VI discusses results and ablations; Section VII concludes and sketches future 
+% directions.
+% %--------------------------------------------------------------
+
+% \begin{table}[b]
+%   \caption{Summary of contributions (placeholder)}
+%   \label{tab:intro_contrib}
+%   \centering
+%   \begin{tabular}{@{}ll@{}}
+%     \toprule
+%     Problem & Our Remedy \\ \midrule
+%     Sparse cache misses & Dense block reorder \\
+%     Serial solver & OpenMP parallel BA \\ \bottomrule
+%   \end{tabular}
+% \end{table}

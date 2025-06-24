@@ -1,15 +1,80 @@
 \section{System Overview}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla sapien nisl,
-interdum et venenatis nec, sagittis in libero. Vestibulum aliquam laoreet
-congue.
+This section offers a birds‐eye view of our cache-optimized bundle–adjustment (BA) pipeline, tracing the 
+path from raw vision data to dense BLAS calls.  Full implementation details follow in \S\ref{sec:methodology}; 
+here we focus on the high-level ideas and data flow.
 
-Sed fringilla tincidunt magna, eu rutrum dolor interdum at. 
+\subsection{Problem Formulation}
+Bundle Adjustment maintains two vertex sets: camera poses (Type--1, 6~or~9 parameters each) and 3-D landmarks 
+(Type--2, 3 parameters each).  Pixel observations link one pose to one landmark and become edges in a bipartite 
+graph.  The cost function is the weighted reprojection error, minimized with the damped Levenberg--Marquardt (LM)
+scheme summarized in Algorithm~\ref{alg:lm}.
+
+\subsection{Data Ingestion \& Pre-processing}
+\textbf{Vertex-first loading.}  The dataset loader first emits a contiguous array of pose parameters and then the 
+landmark array; only afterwards is the observation list streamed.  This order enables the dense local-ID mapping 
+and landmark-first edge bucketing introduced in \S\ref{subsec:parameter_ordering}.
+
+\textbf{Reprojection plug-in.}  Before calling \texttt{initialize()}, the solver is bound to a user-supplied 
+reprojection functor that maps $(\text{pose},\text{landmark})\!\rightarrow\!\text{pixel}$.  Swapping camera models 
+therefore requires only exchanging this functor.
+
+\subsection{Iterative Optimization Pipeline}
+Per outer LM iteration we: (1) build Jacobians in parallel over edges, (2) aggregate dense $\mathbf{A}$, $\mathbf{B}$ 
+and $\mathbf{W}$ blocks, (3) construct the reduced pose–pose system with the tiled two-phase Schur complement (T$^{2}$SC), 
+(4) solve the dense system via vendor BLAS (Cholesky or LDLT) and (5) update parameters and damping.  Convergence is 
+declared when either the infinity-norm of the gradient or the update step falls below user thresholds, or after ten LM 
+iterations to match real-time SLAM budgets.
+
+\subsection{Memory \& Parallel Strategy}
+All hot data structures live in contiguous memory: a structure-of-arrays parameter vector and five flat connectivity 
+maps.  Producer–consumer tiling keeps Schur tiles resident in L2/L3 cache, while every heavy kernel maps cleanly to 
+Level-3 BLAS.  This design yields a \mbox{$\approx\!3\times$} wall-clock speed-up over g2o and consistent per-iteration 
+gains on both a 16-core x86-64 and a quad-core Cortex-A53 platform.
+
+\subsection{Complexity Note}
+Each LM iteration costs $\mathcal{O}(|E|\,b^{2}+|C|^{3})$; cache tiling and dense BLAS reduce the constant factor 
+by an order of magnitude relative to classic CSR-based solvers.
+
+% --------------------------------------------------------------------
+% High-Level Levenberg–Marquardt Bundle-Adjustment Algorithm (SBA style)
+% --------------------------------------------------------------------
+\begin{algorithm}[t]
+  \caption{High-Level SBA-Style Levenberg--Marquardt for Bundle Adjustment}
+  \label{alg:lm}
+  \begin{algorithmic}[1]
+    \Require Measurement vector $\mathbf{x}$, initial parameters $\mathbf{p}_0$, tolerance $\varepsilon_{\mathrm{g}},\varepsilon_{\mathrm{p}}$, damping seed $\tau$, iteration cap $k_{\max}$
+    \Ensure Optimised parameters $\mathbf{p}^{+}$
+    \State $k \gets 0$, $\nu \gets 2$, $\mathbf{p} \gets \mathbf{p}_0$
+    \State Compute $\mathbf{J}$, $\boldsymbol{\varepsilon}=\mathbf{x}-f(\mathbf{p})$, $\mathbf{g}=\mathbf{J}^{T}\boldsymbol{\varepsilon}$, $\mathbf{A}=\mathbf{J}^{T}\mathbf{J}$
+    \State $\mu \gets \tau \cdot \max_i A_{ii}$; $\textit{stop} \gets (\lVert \mathbf{g} \rVert_\infty \le \varepsilon_{\mathrm{g}})$
+    \While{\textbf{not} $\textit{stop}$ \textbf{and} $k<k_{\max}$}
+      \State $k \gets k+1$
+      \Repeat
+        \State Solve $(\mathbf{A}+\mu\mathbf{I})\,\delta\mathbf{p}=\mathbf{g}$ \hspace{-1em} \Comment{Damped normal eqn.}
+        \If{$\lVert\delta\mathbf{p}\rVert \le \varepsilon_{\mathrm{p}}\,(\lVert\mathbf{p}\rVert + \varepsilon_{\mathrm{p}})$}
+          \State $\textit{stop} \gets \textbf{true}$
+        \Else
+          \State $\mathbf{p}_{\text{new}} \gets \mathbf{p}+\delta\mathbf{p}$
+          \State $\rho \gets \dfrac{\lVert\boldsymbol{\varepsilon}\rVert^{2}-\lVert \mathbf{x}-f(\mathbf{p}_{\text{new}}) \rVert^{2}}{\delta\mathbf{p}^{T}(\mu\,\delta\mathbf{p}+\mathbf{g})}$
+          \If{$\rho>0$}
+            \State $\mathbf{p} \gets \mathbf{p}_{\text{new}}$; Recompute $\mathbf{J},\boldsymbol{\varepsilon},\mathbf{g},\mathbf{A}$
+            \State $\textit{stop} \gets (\lVert \mathbf{g} \rVert_\infty \le \varepsilon_{\mathrm{g}})$
+            \State $\mu \gets \mu\,\max\bigl(\tfrac13, \min\bigl(\tfrac23, 1-(2\rho-1)^{3}\bigr)\bigr)$ 
+            \State $\nu \gets 2$
+          \Else
+            \State $\mu \gets \mu\,\nu$; $\nu \gets 2\,\nu$
+          \EndIf
+        \EndIf
+      \Until{$\rho>0$ \textbf{or} $\textit{stop}$}
+    \EndWhile
+    \State \Return $\mathbf{p}$
+  \end{algorithmic}
+\end{algorithm}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{figs/placeholder}
-  \caption{High-level architecture showing dense block generation and BLAS call
-           sequence (placeholder).}
+  \caption{System architecture showing data flow and major BLAS-backed kernels (placeholder).}
   \label{fig:overview_arch}
 \end{figure}
 

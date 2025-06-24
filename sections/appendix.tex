@@ -1,0 +1,91 @@
+% =============================================================================
+% APPENDIX
+% =============================================================================
+\section{Supplementary Material}
+\label{app:supplementary}
+
+% TODO: Add supplementary content here
+% Examples of what could go in appendices:
+% - Detailed derivations
+% - Additional experimental results
+% - Algorithm pseudocode
+% - Hardware specifications
+% - Extended performance tables
+
+\subsection{Detailed Algorithm Derivations}
+\label{app:derivations}
+
+% TODO: Add mathematical derivations that were too detailed for the main text
+
+\subsection{Additional Experimental Results}
+\label{app:additional_results}
+
+% TODO: Add extended experimental results, additional datasets, or 
+% performance comparisons that couldn't fit in the main results section
+
+\subsection{Implementation Detailssdsd}
+\label{app:implementation}
+
+% --------------------------------------------------------------------
+% OptimizerHLS -- Block-Structured BA-LM Solver (Implementation Detail)
+% --------------------------------------------------------------------
+\begin{algorithm}[H]
+\caption{Detailed Block-Structured BA--LM Solver with Scaling and Schur Complement}
+\begin{algorithmic}[1]
+\small
+\Require Scaled tolerance $\varepsilon_{\mathrm{g}}$, damping $\mu$, current pose/landmark parameters $\mathbf{p}_1,\mathbf{p}_2$, observations $\mathbf{x}$, information $\boldsymbol{\Sigma}^{-1}$
+\Ensure Increment $\delta\mathbf{p}$
+% ------------------ Stage 0: Pre-processing ------------------
+\State Compute dense column norms $n_i \gets \lVert \mathbf{J}_{:i} \rVert_2^2$; $s_i \gets 1/\sqrt{n_i+\varepsilon}$
+\State Scale Jacobian blocks $\widetilde{\mathbf{J}}_{:i} \gets s_i\,\mathbf{J}_{:i}$ and residual $\widetilde{\boldsymbol{\varepsilon}} \gets \boldsymbol{\Sigma}^{\!-1/2}\,(\mathbf{x}-f(\mathbf{p}))$
+% ------------------ Stage 1: Block accumulation ------------------
+\ForAll{edge $e=(i,j)$}
+  \State $\mathbf{W}_{ij} \mathrel{+}= \widetilde{\mathbf{J}}_{1}(e)^{T}\widetilde{\mathbf{J}}_{2}(e)$
+  \State $\mathbf{A}_{i} \mathrel{+}= \widetilde{\mathbf{J}}_{1}(e)^{T}\widetilde{\mathbf{J}}_{1}(e)$;
+  $\mathbf{B}_{j} \mathrel{+}= \widetilde{\mathbf{J}}_{2}(e)^{T}\widetilde{\mathbf{J}}_{2}(e)$
+  \State $\mathbf{b}_{1,i} \mathrel{+}= \widetilde{\mathbf{J}}_{1}(e)^{T}\widetilde{\boldsymbol{\varepsilon}}(e)$;
+  $\mathbf{b}_{2,j} \mathrel{+}= \widetilde{\mathbf{J}}_{2}(e)^{T}\widetilde{\boldsymbol{\varepsilon}}(e)$
+\EndFor
+% ------------------ Stage 2: LM damping ------------------
+\ForAll{$i$} $\mathbf{A}_{i} \gets \mathbf{A}_{i}+\mu\mathbf{I}$ \EndFor;
+\ForAll{$j$} $\mathbf{B}_{j} \gets \mathbf{B}_{j}+\mu\mathbf{I}$ \EndFor
+% ------------------ Stage 3: Landmark elimination ------------------
+\ForAll{$j$} $\mathbf{B}^{-1}_{j} \gets \text{LDLT}(\mathbf{B}_j)$ (SVD fallback) \EndFor
+\ForAll{$(i,j)$} $\mathbf{Y}_{ij} \gets \mathbf{W}_{ij}\mathbf{B}^{-1}_{j}$ \EndFor
+% ------------------ Stage 4: Reduced Hessian & Gradient ------------------
+\For{$i=1$ \textbf{to} $m$}
+  \State $\mathbf{H}_{ii} \gets \mathbf{A}_{i}$
+  \State $\mathbf{b}_{\mathrm{act},i} \gets \mathbf{b}_{1,i}$
+\EndFor
+\ForAll{pose pair $(i,k)$ sharing landmarks}
+  \State $\mathbf{H}_{ik} \gets \mathbf{0}$
+\EndFor
+\ForAll{edge $e=(i,j)$}
+  \State $\mathbf{H}_{ii} \mathrel{-}= \mathbf{Y}_{ij}\mathbf{W}_{ij}^T$
+  \State $\mathbf{b}_{\mathrm{act},i} \mathrel{-}= \mathbf{Y}_{ij}\mathbf{b}_{2,j}$
+  \ForAll{pose $k\,(k<i)$ observing $j$}
+    \State $\mathbf{H}_{ik} \mathrel{-}= \mathbf{Y}_{ij}\mathbf{W}_{kj}^T$
+  \EndFor
+\EndFor
+% ------------------ Stage 5: Solve for pose increments ------------------
+\State Solve $\mathbf{H}\,\delta\mathbf{p}_1 = \mathbf{b}_{\mathrm{act}}$ (LDLT, fallback LU)
+% ------------------ Stage 6: Back-substitution for landmarks ------------------
+\For{$j=1$ \textbf{to} $n$}
+  \State $\delta\mathbf{p}_{2,j} \gets \mathbf{B}^{-1}_{j}\Bigl(\mathbf{b}_{2,j}-\sum_{i}\mathbf{W}_{ij}^{T}\,\delta\mathbf{p}_{1,i}\Bigr)$
+\EndFor
+% ------------------ Stage 7: Un-scaling ------------------
+\State $\delta\mathbf{p} \gets \delta\mathbf{p} \oslash \mathbf{s}$ %\Comment{Element-wise unscale}
+\State \Return $\delta\mathbf{p}$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Design Highlights.}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Block-Diagonal Storage:} Pose ($\mathbf{A}_i$) and landmark ($\mathbf{B}_j$) blocks are kept in contiguous column-major slabs to maximise BLAS level-3 throughput.
+  \item \textbf{Edge-Centric Accumulation:} The edge lists \verb|v1_edge|, \verb|v2_edge| drive accumulation loops without expensive indirections.
+  \item \textbf{Pose-Pair Hashing:} Off-diagonal look-ups use the compact index $k=\tfrac{i(i-1)}{2}+j$ into \verb|v1_edge_pairs| to achieve $O(1)$ co-observation access.
+  \item \textbf{Mixed Precision:} Jacobians are differentiated in \texttt{double} yet stored as the compile-time \texttt{Scalar} type (\texttt{float} by default).
+  \item \textbf{Jacobi Scaling:} Column-wise norms yield scale vector $\mathbf{s}$; its inverse rescales Jacobian columns in place, improving condition numbers.
+  \item \textbf{Pipeline Mode:} When \texttt{usePipeline} is enabled, W-block assembly runs asynchronously while the CPU assembles Schur tiles, hiding memory latency.
+\end{itemize}
+% -------------------------------------------------------------------- 

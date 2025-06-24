@@ -16,6 +16,7 @@
 \usepackage{algorithm}     % for algorithms
 \usepackage{algpseudocode} % for algorithmic pseudocode
 \usepackage{xcolor}        % for colors
+\usepackage{enumitem}      % for customizing lists
 \newcommand{\cmark}{\checkmark}
 \newcommand{\xmark}{\ding{55}}  % or \ensuremath{\times}
 
@@ -25,7 +26,7 @@
 \addtolength{\textfloatsep}{-0.5\baselineskip} % tighter floats
 
 % ---------- Title ----------
-\title{Cache-Optimized, Parallel Bundle Adjustment via Dense BLAS APIs for Embedded Multicore Platforms}
+\title{Accelerated Bundle Adjustment for Multicore Platforms}
 
 \author{
   \IEEEauthorblockN{First Author\IEEEauthorrefmark{1},
@@ -64,5 +65,12 @@ This work was supported by …
 
 % ---------- References ----------
 \bibliography{bib/references}
+
+% ---------- Appendix ----------
+% \clearpage
+% \newpage
+\onecolumn
+\appendix
+\input{sections/appendix}
 
 \end{document}

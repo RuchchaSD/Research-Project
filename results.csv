@@ -1,0 +1,35 @@
+Accuracy after 10 iterations,Dataset,dataset1,dataset2,dataset3,dataset4,dataset5
+,my ,26700.668,36067.742,34288.418,103754.875,118788.781
+,g2o,30980.5145,124093.1242,34391.55105,141586.915,129259.0018
+,ceres,26707.2,36067.81,34198.95,103218.3,119714.4
+,Final,26688.746,36067.742,34198.887,103218.086,118749.234
+,,,,,,
+,,,,,,
+Time after 10 iterations,Dataset,dataset1,dataset2,dataset3,dataset4,dataset5
+,my - kria,3.202,9.651,7.214,9.138,36.325
+,g2o - kria,8.60072,17.4175,14.561,16.9995,43.487
+,my - intel,0.189s,0.680 s,0.471s,0.836s,1.223s
+,g2o - intel,1.06168,1.56191,3.0001,2.15918,4.43312
+,,,,,,
+,,,,,,
+Time per successful iteration,Dataset,dataset1,dataset2,dataset3,dataset4,dataset5
+,my - kria,0.262,0.762,0.458,0.681,2.651
+,g2o - kria,0.772275,1.56325,1.30769,1.52303,3.9425
+,my - intel,0.017,0.065,0.031,0.066,0.087
+,g2o - intel,0.0971882,0.143452,0.272387,0.202288,0.430052
+,,,,,,
+,,,,,,
+,Ablations,,,,,
+Ablation with and w/o schur pipeline,Dataset,dataset1,dataset2,dataset3,dataset4,dataset5
+,kria with pipeline,45.6030 ms,184.9229 ms,82.0647 ms,164.1825 ms,187.8091 ms
+,kria w/o pipeline,147.2970 ms,315.2660 ms,238.0230 ms,300.1200 ms,502.0400 ms
+,my with pipeline,3.9152 ms,22.9155 ms,6.5049 ms,32.5300 ms, 15.3230 ms
+,my w/o pipeline,50.3560 ms,96.0820 ms,78.4450 ms, 105.9760 ms,168.9510 ms
+,,,,,,
+,,,,,,
+,Memory,,,,,
+data type,Dataset,dataset1,dataset2,dataset3,dataset4,dataset5
+Float,accuracy at iteration 5,26775.908,36067.785,34318.758,123822.656,119939.984
+,memory,101.19,219.08,147.67,206.31,289.29
+Double,accuracy at iteration 5,26783.331,36067.835,34318.709,123820.275,119940.173
+,memory,165.67,360.5,247.41,338.16,498.9
